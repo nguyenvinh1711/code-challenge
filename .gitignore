@@ -1,0 +1,9 @@
+node_modules/
+*.log
+.env
+problem5/.env
+problem5/data/*.sqlite
+problem5/data/*.sqlite-journal
+problem5/data/*.sqlite-wal
+problem5/data/*.sqlite-shm
+PLAN.md
