@@ -35,9 +35,9 @@ The SQLite file is created on first boot at `problem5/data/items.sqlite`.
 A seed script is provided to populate random items so all endpoints can be exercised immediately. It **respects `DB_DRIVER`** same command for both backends:
 
 ```bash
-npm run solution5:seed                    # 20 items (default), into current driver
-npm run solution5:seed -- 100             # custom count
-npm run solution5:seed -- 50 --clear      # wipe existing items first, then seed 50
+npm run solution5:db:seed                    # 20 items (default), into current driver
+npm run solution5:db:seed -- 100             # custom count
+npm run solution5:db:seed -- 50 --clear      # wipe existing items first, then seed 50
 ```
 
 For Postgres, ensure migrations have run first (`npm run solution5:db:migrate`). 
@@ -208,9 +208,11 @@ problem5/
 ├── solution.ts                entry — `import './src/index'`
 ├── .env                       optional env overrides
 ├── data/                      SQLite file lives here (gitignored)
+├── migrations/postgres/      Drizzle-generated SQL migrations + meta/
 └── src/
-    ├── index.ts               bootstrap (load .env → newApp → listen)
-    ├── app.ts                 Express app factory
+    ├── index.ts               bootstrap (load .env → newApp → listen → SIGTERM handler)
+    ├── app.ts                 Express app factory; returns { app, closeDb }
+    ├── config.ts              loadConfig() + buildRepositories() — DB_DRIVER dispatch
     ├── models/
     │   ├── items.model.ts     Item interface
     │   └── index.ts
@@ -218,10 +220,18 @@ problem5/
     │   ├── items.schema.ts    zod schemas + inferred input types
     │   └── index.ts
     ├── repositories/
-    │   ├── interfaces.ts      IItemsRepository port
+    │   ├── interfaces.ts      IItemsRepository port + IRepositories bundle
     │   ├── sqlite/
-    │   │   ├── db.ts          better-sqlite3 driver + table DDL
-    │   │   └── items.repository.ts   SQLite adapter
+    │   │   ├── db.ts                  better-sqlite3 driver + table DDL
+    │   │   ├── items.repository.ts    SQLite adapter
+    │   │   ├── factory.ts             buildSqliteRepositories() — bundle factory
+    │   │   └── index.ts
+    │   ├── postgres/
+    │   │   ├── db.ts                  pg.Pool + Drizzle handle
+    │   │   ├── schema.ts              Drizzle table definition (source of truth)
+    │   │   ├── items.repository.ts    Postgres adapter (Drizzle)
+    │   │   ├── factory.ts             buildPostgresRepositories() — bundle factory
+    │   │   └── index.ts
     │   └── index.ts
     ├── services/
     │   ├── interfaces.ts      IItemsService
@@ -237,7 +247,9 @@ problem5/
     ├── utils/
     │   └── http-errors.ts     ApiError class
     ├── scripts/
-    │   └── seed.ts            random data populator
+    │   ├── seed.ts            random data populator (driver-agnostic)
+    │   └── migrate.ts         one-shot Postgres migration runner
+    │    
     └── __tests__/
         └── items.test.ts      health + CRUD tests (simple integration tests to make sure the CRUD are working)
 ```
@@ -251,20 +263,36 @@ HTTP request
     │
     ▼
 routes/items.routes.ts  ──validate (zod)──▶  ItemsService  ──▶  IItemsRepository (port)
-                                                                     │
-                            ┌────────────────────────────────────────┤
-                            ▼                                        ▼
-            repositories/sqlite/items.repository.ts   repositories/postgres/items.repository.ts
-            (better-sqlite3 — sync, file-based)       (drizzle-orm + pg.Pool)
-                            │                                        │
-                            ▼                                        ▼
-            repositories/sqlite/db.ts                 repositories/postgres/db.ts
-                                                      + repositories/postgres/schema.ts
+                                                                     ▲
+                                                                     │  injected from
+                                                                     │  IRepositories bundle
+                                          ┌──────────────────────────┴───────────────┐
+                                          │              config.ts                   │
+                                          │   loadConfig() reads DB_DRIVER           │
+                                          │   buildRepositories(cfg) dispatches ↓    │
+                                          └──────────────────────────────────────────┘
+                                                       │
+                          ┌────────────────────────────┴────────────────────────────┐
+                          ▼                                                         ▼
+            buildSqliteRepositories(cfg)                              buildPostgresRepositories(cfg)
+            ─ opens one better-sqlite3 Database                       ─ opens one pg.Pool + Drizzle handle
+            ─ wires newSqliteItemsRepository(db)                      ─ wires newPgItemsRepository(db)
+            ─ returns { items, close }                                ─ returns { items, close }
+                          │                                                         │
+                          ▼                                                         ▼
+            repositories/sqlite/items.repository.ts                   repositories/postgres/items.repository.ts
+            (better-sqlite3 — sync, file-based)                       (drizzle-orm + pg.Pool)
+                          │                                                         │
+                          ▼                                                         ▼
+            repositories/sqlite/db.ts                                 repositories/postgres/db.ts
+                                                                      + repositories/postgres/schema.ts
 ```
 
 - Routes, the service, and the model layer have **zero dependency on a specific driver**. They only know `IItemsRepository`.
-- The `DB_DRIVER` env selects the adapter at boot via `src/config.ts` — the single registration point.
-- To add another backend (e.g. MySQL, Mongo), implement `IItemsRepository` under `src/repositories/<driver>/` and add a `case` to `buildRepositories`.
+- The `DB_DRIVER` env selects the adapter at boot via `src/config.ts` — the single dispatch point.
+- Each driver has a **factory** (`buildSqliteRepositories` / `buildPostgresRepositories`) that owns the underlying connection (sqlite `Database` or `pg.Pool`), constructs every repository for that driver, and returns an `IRepositories` bundle (`{ items, close }`). The `close()` hook is what `app.ts` calls on `SIGTERM` to drain pools cleanly.
+- **To add another backend** (e.g. MySQL, Mongo): create `src/repositories/<driver>/items.repository.ts` implementing `IItemsRepository`, add a `<driver>/factory.ts` exporting `build<Driver>Repositories(cfg)` returning the bundle, then add one `case` to `buildRepositories` in `config.ts`. No other file changes.
+- **To add another repository** (e.g. `users`): add `users: IUsersRepository` to the `IRepositories` interface — TypeScript will then force every driver's factory to wire it in.
 
 ---
 
