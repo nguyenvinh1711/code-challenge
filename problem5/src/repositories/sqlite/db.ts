@@ -3,9 +3,14 @@ import Database from 'better-sqlite3';
 
 export type SqliteDb = Database.Database;
 
-export function newSqliteDb(dbAbsolutePath?: string): SqliteDb {
-   const resolved = dbAbsolutePath?.trim()
-      ? dbAbsolutePath
+export interface SqliteConfig {
+   dbPath?: string;
+}
+
+export function newSqliteDb(cfg: SqliteConfig): SqliteDb {
+   console.log('newSqliteDb', cfg);
+   const resolved = cfg.dbPath?.trim()
+      ? cfg.dbPath
       : path.resolve(__dirname, '../../../data/items.sqlite');
 
    const db = new Database(resolved, { verbose: console.log });

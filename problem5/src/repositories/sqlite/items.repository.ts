@@ -59,12 +59,12 @@ export function newSqliteItemsRepository(db: SqliteDb): IItemsRepository {
       return getStmt.get(id) as Item | undefined;
    }
 
-   const updateTxn = db.transaction((id: number, data: UpdateItemInput): Item | undefined => {
+   const updateTxn = db.transaction((id: number, patch: UpdateItemInput): Item | undefined => {
       const existing = getStmt.get(id) as Item | undefined;
       if (!existing) return undefined;
       const merged: Item = {
          id: existing.id,
-         name: data.name ?? existing.name,
+         name: patch.name ?? existing.name,
          createdAt: existing.createdAt,
          updatedAt: new Date().toISOString(),
       };
@@ -72,8 +72,8 @@ export function newSqliteItemsRepository(db: SqliteDb): IItemsRepository {
       return merged;
    });
 
-   async function update(id: number, data: UpdateItemInput): Promise<Item | undefined> {
-      return updateTxn(id, data);
+   async function update(id: number, patch: UpdateItemInput): Promise<Item | undefined> {
+      return updateTxn(id, patch);
    }
 
 

@@ -6,7 +6,7 @@ import { newApp } from '../app';
 function freshApp() {
    process.env['NODE_ENV'] = 'test';
    process.env['DB_PATH'] = ':memory:';
-   return newApp();
+   return newApp().app;
 }
 
 test('health check', async () => {

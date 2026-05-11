@@ -2,10 +2,16 @@ import express, { type Express } from 'express';
 import morgan from 'morgan';
 import { itemsRouter } from './routes';
 import { newItemsService } from './services';
-import { newSqliteDb, newSqliteItemsRepository } from './repositories';
+import { loadConfig, buildRepositories } from './config';
 import { notFound, errorHandler } from './middleware/errors';
 
-export function newApp(): Express {
+export interface AppHandle {
+   app: Express;
+   /** Close all DB connections. Call on SIGTERM/SIGINT. */
+   closeDb: () => Promise<void>;
+}
+
+export function newApp(): AppHandle {
    const app = express();
 
    // Middleware
@@ -21,9 +27,10 @@ export function newApp(): Express {
       res.json({ ok: true });
    });
 
-   // Connect to db and create services
-   const db = newSqliteDb(process.env['DB_PATH']);
-   const itemsService = newItemsService(newSqliteItemsRepository(db));
+   // Build the repository bundle for the configured driver.
+   const repos = buildRepositories(loadConfig());
+   const itemsService = newItemsService(repos.items);
+   // other services can be added here
 
    // Register routes
    app.use('/items', itemsRouter(itemsService));
@@ -32,5 +39,5 @@ export function newApp(): Express {
    app.use(notFound);
    app.use(errorHandler);
 
-   return app;
+   return { app, closeDb: () => repos.close() };
 }
