@@ -1,0 +1,95 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+      POSTGRES_DB: ${POSTGRES_DB:-items}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      # The left side (${POSTGRES_PORT:-5432}) is the host port: it uses the POSTGRES_PORT environment variable if set, otherwise defaults to 5432.
+      # "<host_port>:<container_port>"
+      - "${POSTGRES_PORT:-5432}:5432"
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+
+  migrate:
+    build:
+      # context: .. tells Docker to use the parent directory of this docker-compose.yml as the build context,
+      # meaning everything in the parent directory will be available during the image build.
+      context: ..
+      dockerfile: problem5/Dockerfile
+    command: ["node", "dist/problem5/src/scripts/migrate.js"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-items}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build:
+      context: ..
+      dockerfile: problem5/Dockerfile
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_DRIVER: postgres
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-items}
+      CACHE_DRIVER: redis
+      REDIS_URL: redis://redis:6379
+      CACHE_TTL_ITEM_MS: ${CACHE_TTL_ITEM_MS:-60000}
+      CACHE_TTL_LIST_MS: ${CACHE_TTL_LIST_MS:-30000}
+      CACHE_TTL_NEGATIVE_MS: ${CACHE_TTL_NEGATIVE_MS:-5000}
+      CACHE_MAX_ENTRIES: ${CACHE_MAX_ENTRIES:-1000}
+      CACHE_KEY_PREFIX: ${CACHE_KEY_PREFIX:-p5:}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  seed:
+    profiles: ["seed"]
+    build:
+      context: ..
+      dockerfile: problem5/Dockerfile
+    # To run this seed service: docker compose run --rm seed
+    command: ["node", "dist/problem5/src/scripts/seed.js", "--count=50"]
+    environment:
+      NODE_ENV: development
+      DB_DRIVER: postgres
+      DATABASE_URL: postgres://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@postgres:5432/${POSTGRES_DB:-items}
+      CACHE_DRIVER: none
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  redisdata:

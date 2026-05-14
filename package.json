@@ -6,6 +6,7 @@
    "scripts": {
       "solution4": "ts-node problem4/solution.ts",
       "solution5": "ts-node problem5/solution.ts",
+      "solution5:build": "tsc -p tsconfig.build.json",
       "solution5:test": "node --require ts-node/register --test 'problem5/src/__tests__/*.test.ts' 'problem5/src/__tests__/*.spec.ts'",
       "solution5:db:seed": "ts-node problem5/src/scripts/seed.ts",
       "solution5:db:generate": "drizzle-kit generate --config=problem5/drizzle.config.ts",
@@ -26,7 +27,7 @@
    "homepage": "https://github.com/nguyenvinh1711/code-challenge#readme",
    "devDependencies": {
       "@testcontainers/postgresql": "^11.14.0",
-      "@types/node": "^25.6.0",
+      "@types/node": "^24.0.0",
       "@types/pg": "^8.20.0",
       "@types/supertest": "^7.2.0",
       "drizzle-kit": "^0.31.10",
@@ -44,6 +45,7 @@
       "better-sqlite3": "^12.9.0",
       "drizzle-orm": "^0.45.2",
       "express": "^5.2.1",
+      "ioredis": "^5.4.1",
       "morgan": "^1.10.1",
       "pg": "^8.20.0",
       "zod": "^4.4.3"
